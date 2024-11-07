@@ -1,0 +1,192 @@
+#!/usr/local/bin/perl
+# -*- perl -*-
+
+=head1 NAME
+
+rspamd - Plugin to graph rspamd throughput
+based on spamassasin spamstats changed by chrissie in 2024
+
+=head1 CONFIGURATION
+
+This plugin does not have any configuration
+
+=head1 AUTHOR
+
+Unknown author
+
+=head1 LICENSE
+
+GPLv2
+
+=head1 MAGIC MARKERS
+
+ #%# family=contrib
+ #%# capabilities=autoconf
+
+=cut
+
+
+$statefile = $ENV{statefile} || "$ENV{MUNIN_PLUGSTATE}/munin-rspamdstats.state";
+$pos   = undef;
+$no_action = 0;
+$add_header = 0;
+$rewrite_subject = 0;
+$reject = 0;
+
+#print "DBG: statefile: $statefile\n";
+
+$logfile = $ENV{logdir} || "/var/log/rspamd/";
+$logfile .= $ENV{logfile} || "rspamd.log";
+
+#if (-f "$logfile.0")
+#{
+#    $rotlogfile = $logfile . ".0";
+#}
+#elsif (-f "$logfile.1")
+#{
+#    $rotlogfile = $logfile . ".1";
+#}
+#else
+#{
+#    $rotlogfile = $logfile . ".0";
+#}
+
+$rotlogfile = $logfile;
+
+#print "DBG: rotlogfile: $rotlogfile\n";
+
+if ( $ARGV[0] and $ARGV[0] eq "config" )
+{
+    print "host_name $ENV{FQDN}\n";
+    print "graph_title Rspamd Stats by chrissie\n";
+    print "graph_category postfix\n";
+    print "graph_args --base 1000 -l 0\n";
+    print "graph_vlabel mails/\${graph_period}\n";
+
+    print "graph_period minute\n";
+
+    print "graph_order no_action add_header rewrite_subject reject\n";
+    print "no_action.label no_action\n";
+    print "no_action.type DERIVE\n";
+    print "no_action.min 0\n";
+    print "no_action.draw LINE\n";
+    print "no_action.colour 228b22\n";
+    print "add_header.label add_header\n";
+    print "add_header.type DERIVE\n";
+    print "add_header.min 0\n";
+    print "add_header.draw LINE\n";
+    print "add_header.colour 0000e8\n";
+    print "rewrite_subject.label rewrite_subject\n";
+    print "rewrite_subject.type DERIVE\n";
+    print "rewrite_subject.min 0\n";
+    print "rewrite_subject.draw LINE\n";
+    print "rewrite_subject.colour ffa000\n";
+    print "reject.label reject\n";
+    print "reject.type DERIVE\n";
+    print "reject.min 0\n";
+    print "reject.draw LINE\n";
+    print "reject.colour ff0000\n";
+    exit 0;
+}
+
+
+elsif ( defined($ARGV[0]) and $ARGV[0] eq "autoconf" )
+{
+    open(my $log, '<', $logfile) or ( print("no (Could not open $logfile)\n") and exit );
+    while(<$log>)
+    {
+        if( /default. T/ or /default. F/ )
+        {
+            print "yes\n";
+            close($log);
+            exit;
+        }
+    }
+    print "no (No rspamd log found)\n";
+    close($log);
+    exit;
+}
+
+if (! -f $logfile and ! -f $rotlogfile)
+{
+    print "no_action.value U\n";
+    print "add_header.value U\n";
+    print "rewrite_subject.value U\n";
+    print "reject.value U\n";
+    exit 0;
+}
+
+if (-f "$statefile")
+{
+    open (IN, "$statefile") or exit 4;
+    if (<IN> =~ /^(\d+):(\d+):(\d+):(\d+):(\d+)/)
+    {
+	($pos, $no_action, $add_header, $rewrite_subject, $reject) = ($1, $2, $3, $4, $5);
+    }
+    close IN;
+}
+
+$startsize = (stat $logfile)[7];
+#print "DBG: startsize: $startsize\n";
+
+if (!defined $pos)
+{
+    # Initial run.
+    $pos = $startsize;
+}
+
+if ($startsize < $pos)
+{
+    # Log rotated
+    if (-f $rotlogfile) {
+        parselogfile ($rotlogfile, $pos, (stat $rotlogfile)[7]);
+    }
+    $pos = 0;
+}
+
+parselogfile ($logfile, $pos, $startsize);
+$pos = $startsize;
+
+print "no_action.value $no_action\n";
+print "add_header.value $add_header\n";
+print "rewrite_subject.value $rewrite_subject\n";
+print "reject.value $reject\n";
+
+open (OUT, ">$statefile") or exit 4;
+print OUT "$pos:$no_action:$add_header:$rewrite_subject:$reject\n";
+close OUT;
+
+sub parselogfile
+{
+    my ($fname, $start, $stop) = @_;
+
+#$start = 50; # DBG
+    open (LOGFILE, $fname) or exit 3;
+    seek (LOGFILE, $start, 0) or exit 2;
+
+#print ("DBG: fname, start, stop: $fname, $start, $stop\n");
+    while (tell (LOGFILE) < $stop)
+    {
+	my $line =<LOGFILE>;
+	chomp ($line);
+#print "DBG: line: $line";
+
+	if ($line =~ m/T .reject./)
+	{
+	    $reject++;
+	}
+	elsif ($line =~ m/T .add header./)
+	{
+	    $add_header++;
+	}
+	elsif ($line =~ m/T .rewrite subject./)
+	{
+	    $rewrite_subject++;
+	}
+	elsif ($line =~ m/F .no action./)
+	{
+	    $no_action++;
+	}
+    }
+    close(LOGFILE);
+}
