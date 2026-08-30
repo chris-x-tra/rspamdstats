@@ -59,7 +59,7 @@ if ( $ARGV[0] and $ARGV[0] eq "config" )
 {
     print "host_name $ENV{FQDN}\n";
     print "graph_title Rspamd Stats by chrissie\n";
-    print "graph_category postfix\n";
+    print "graph_category spamfilter\n";
     print "graph_args --base 1000 -l 0\n";
     print "graph_vlabel mails/\${graph_period}\n";
 
